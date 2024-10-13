@@ -1,0 +1,89 @@
+service: freshbot-serverless
+provider:
+  name: aws
+  runtime: python3.7
+  stage: ${opt:stage,'dev'}
+  region: us-east-1
+  memorySize: 1024
+  timeout: 30
+  # deploymentBucket:
+  #   name: cb-${self:provider.stage}-${self:provider.region}-freshbot-artifact
+  #   serverSideEncryption: AES256
+  stackName: cb-serverless-${self:provider.stage}-${self:provider.region}-freshbot
+  logs:
+    restApi:
+      # role: arn:aws:iam::408703485642:role/freshbot_api_gateway_temp_role
+      level: INFO
+      fullExecutionData: true
+      accessLogging: true #Log full requests/response data
+      format: '{  "DomainName": "$context.authorizer.domain", "CbRequestId": "$context.authorizer.requestId", "UserEmail":"$context.authorizer.user-email", "AwsRequestId": "$context.requestId",    "AwsDomainName": "$context.domainName",    "APIId": "$context.apiId",    "RequestPath": "$context.path",    "RequestTime": "$context.requestTime",    "SourceIp": "$context.identity.sourceIp",    "ResourcePath": "$context.resourcePath",    "Stage": "$context.stage"}'
+  # apiGateway:
+  #   metrics: true    # to enable detailed CloudWatch Metrics option  
+  environment:
+    # REGION: us-east-1  
+
+custom:
+  stages:
+    - local
+    - predev
+    - dev
+    - staging
+    - prod  
+package:
+  exclude:
+    - node_modules/**
+
+functions:
+  proxyLambdaFunction: 
+    handler: freshbot_test.handler.proxy_call
+    iamRoleStatements:
+      - Effect: "Allow"        
+        Action: 
+          - secretsmanager:GetResourcePolicy
+          - secretsmanager:GetSecretValue
+          - secretsmanager:DescribeSecret
+          - secretsmanager:ListSecretVersionIds
+        Resource: arn:aws:secretsmanager:us-east-1:*:secret:dev/us-e1/freshbot/test/secret-WBfeMS
+    events:
+      - http:
+          path: /{proxy+}
+          method: ANY 
+          reqValidatorName: 'basicRequestValidator'
+          authorizer:
+            name: authorizerLambdaFunction
+            resultTtlInSeconds: 2
+            identitySource: method.request.header.Authorization
+            # identityValidationExpression: someRegex
+            type: token
+
+  authorizerLambdaFunction:
+    handler: freshbot_test.handler.authorizer_call
+    iamRoleStatements:
+      - Effect: "Allow"        
+        Action: 
+          - secretsmanager:GetResourcePolicy
+          - secretsmanager:GetSecretValue
+          - secretsmanager:DescribeSecret
+          - secretsmanager:ListSecretVersionIds
+        Resource: arn:aws:secretsmanager:us-east-1:*:secret:dev/us-e1/freshbot/msapi/test-U97LMo # change this based on account/region??
+
+# you can add CloudFormation resource templates here
+resources:
+  Resources:
+    basicRequestValidator:
+      Type: AWS::ApiGateway::RequestValidator
+      Properties:
+        Name: 'basicRequestValidator' #'Validate body, query string parameters'
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ValidateRequestBody: true # true or false
+        ValidateRequestParameters: true # true or false
+#  Outputs:
+#     NewOutput:
+#       Description: "Description for the output"
+#       Value: "Some output value"
+plugins:
+  - serverless-python-requirements
+  - serverless-reqvalidator-plugin
+  - serverless-aws-documentation
+  - serverless-iam-roles-per-function

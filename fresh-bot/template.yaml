@@ -1,0 +1,257 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Authorizer and Proxy lambda test via API gateway
+
+  Sample SAM Template for Proxy Lambda
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 10
+  Api:
+    OpenApiVersion: 3.0.1   
+
+Resources:
+  FreshBotAPIGateway:
+      Type: AWS::Serverless::Api
+      Properties:
+        Name: Freshbot AWS Api Gateway
+        StageName: predev
+        Auth:
+          Authorizers:
+            FreshBotAuthorizer:
+              FunctionPayloadType: TOKEN #Default value is TOKEN
+              FunctionArn: !GetAtt FreshBotAuthorizerFunction.Arn
+              Identity:
+                Headers:
+                  - Authorization # OPTIONAL; Default: 'Authorization'
+              DefaultAuthorizer: FreshBotAuthorizer
+        DefinitionBody:
+          swagger: "2.0"
+          info:
+            version: "2020-07-01T13:01:29Z"
+            title: "FreshBotAPIGateway"
+          securityDefinitions:
+            FreshBotAuthorizer:
+              type: "apiKey"
+              name: "Authorization"
+              in: "header"
+              x-amazon-apigateway-authtype: "custom"
+              x-amazon-apigateway-authorizer:
+                authorizeUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FreshBotAuthorizerFunction.Arn}/invocations"
+                authorizerResultTtlInSeconds: 0
+                identitySource: "method.request.header.Authorization"
+                type: "token"
+          schemes:
+          - "https"
+          definitions:
+            Empty:
+              type: "object"
+              title: "Empty Schema"
+            testModel:
+              type: "object"
+              required:
+              - "data"
+              properties:
+                payload:
+                  type: "object"
+                data:
+                  type: "object"
+                  properties: {}
+              title: "InputParams"
+          paths:
+            /create_plan:
+              post:
+                consumes:
+                - "application/json"
+                produces:
+                - "application/json"
+                parameters:
+                - name: "Authorization"
+                  in: "header"
+                  required: true
+                  type: "string"
+                - in: "body"
+                  name: "testModel"
+                  required: true
+                  schema:
+                    $ref: "#/definitions/testModel"
+                responses: {
+                  "200": {
+                    "statusCode" : "200",
+                    "description": "200 response",
+                    "schema": {
+                      "$ref": "#/definitions/Empty"
+                    }
+                  }
+                }    
+
+                security:
+                - FreshBotAuthorizer: []
+                x-amazon-apigateway-request-validator: "Validate body, query string parameters, and headers" # Not supported in SAM
+                x-amazon-apigateway-integration:
+                  uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProxyLambdaFunction.Arn}/invocations"
+                  responses:
+                    default:
+                      statusCode: "200"
+                  requestTemplates:
+                    application/json: "{\n  \"data\" : $input.json('$.data') ,\n  \"headers\"\
+                                : {\n    #foreach($param in $input.params().header.keySet())\n    \"$param\"\
+                                : \"$util.escapeJavaScript($input.params().header.get($param))\" #if($foreach.hasNext),#end\n\
+                                \    \n    #end  \n  },\n  \"jwt_payload\": {\n   #foreach($param in $context.authorizer.keySet())\n\
+                                \   \"$param\": \"$util.escapeJavaScript($context.authorizer.get($param))\"\
+                                \ #if($foreach.hasNext),#end\n    \n    #end   \n  }\n \n}"
+                  passthroughBehavior: "when_no_templates"
+                  httpMethod: "POST"
+                  contentHandling: "CONVERT_TO_TEXT"
+                  type: "AWS"
+            
+
+      # Policies:
+      # - Statement:
+      #   - Sid: LambdaApiGatewayPolicy
+      #     Effect: Allow
+      #     Action:
+      #     - execute-api:Invoke
+      #     Resource: '*'
+
+  ApiGatewayInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !GetAtt ProxyLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Join [ "", [
+          "arn:aws:execute-api:", 
+          {"Ref": "AWS::Region"}, ":", 
+          {"Ref": "AWS::AccountId"}, ":", 
+          FreshBotAPIGateway, 
+          "/*/*/*"
+          ]
+        ] 
+
+  FreshBotProxyLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: FreshbotResourcesAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Sid: VisualEditor0
+              Effect: Allow
+              Action:
+              - secretsmanager:GetResourcePolicy
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+              - secretsmanager:ListSecretVersionIds
+              Resource: arn:aws:secretsmanager:us-east-1:*:secret:dev/us-e1/freshbot/msapi/test-U97LMo
+            - Sid: VisualEditor1
+              Effect: Allow
+              Action: secretsmanager:GetRandomPassword
+              Resource: "*"
+            - Sid: VisualEditor2
+              Effect: Allow
+              Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              Resource: "*"
+
+  FreshBotAuthorizerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: FreshbotResourcesAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Sid: VisualEditor0
+              Effect: Allow
+              Action:
+              - secretsmanager:GetResourcePolicy
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+              - secretsmanager:ListSecretVersionIds
+              Resource: arn:aws:secretsmanager:us-east-1:*:secret:dev/us-e1/freshbot/test/secret-WBfeMS
+            - Sid: VisualEditor1
+              Effect: Allow
+              Action: secretsmanager:GetRandomPassword
+              Resource: "*"
+            - Sid: VisualEditor2
+              Effect: Allow
+              Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              Resource: "*"      
+
+  FreshBotAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: './freshbot_authorizer/'
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt FreshBotAuthorizerLambdaRole.Arn
+
+  ProxyLambdaFunction:
+    Type: AWS::Serverless::Function # More info about  Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: './proxy_lambda/'
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt FreshBotProxyLambdaRole.Arn
+      Events:
+        ProxyLambda:
+          Type: Api # More info about API Event Source:https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            RestApiId: !Ref FreshBotAPIGateway
+            Path: /create_plan
+            Method: post    
+
+  # ConfigLambdaPermission:
+  #   Type: "AWS::Lambda::Permission"
+  #   # DependsOn:
+  #   # - FreshBotAPIGateway
+  #   # - ProxyLambdaFunction
+  #   Properties:
+  #     Action: lambda:InvokeFunction
+  #     FunctionName: !GetAtt ProxyLambdaFunction.Arn
+  #     Principal: apigateway.amazonaws.com
+  #     # SourceArn: !GetAtt FreshBotAPIGateway.Arn
+
+  
+
+Outputs:
+  FreshBotAPIGateway:
+    Description: 'API Gateway endpoint URL for predev stage for Proxy Lambda functions'
+    Value: !Sub 'https://${FreshBotAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/predev/'
+
+  FreshBotAPIGatewayCreatePlan:
+    Description: 'API Gateway endpoint URL for predev-stage for Proxy Lambda functions'
+    Value: !Sub 'https://${FreshBotAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/predev/create_plan'
+      
+  FreshBotAPIGatewayRestApiId:
+    Description: 'API Gateway ARN for Freshbot AWS API Gateway'
+    Value: !Ref FreshBotAPIGateway
+    Export:
+      Name: FreshBotAPIGateway-RestApiId
+  FreshBotAPIGatewayRootResourceId:
+    Value: !GetAtt FreshBotAPIGateway.RootResourceId
+    Export:
+      Name: FreshBotAPIGateway-RootResourceId

@@ -1,0 +1,78 @@
+# swagger: "2.0"
+# info:
+#   version: "2020-07-01T13:01:29Z"
+#   title: "BasicAWSApiGateway"
+# securityDefinitions:
+#   BasicAuthorizer:
+#     type: "apiKey"
+#     name: "Authorization"
+#     in: "header"
+#     x-amazon-apigateway-authtype: "custom"
+#     x-amazon-apigateway-authorizer:
+#       authorizeUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BasicAuthorizerFunction.Arn}/invocations"
+#       authorizerResultTtlInSeconds: 0
+#       type: "token"
+# schemes:
+# - "https"
+# definitions:
+#   Empty:
+#     type: "object"
+#     title: "Empty Schema"
+#   testModel:
+#     type: "object"
+#     required:
+#     - "data"
+#     properties:
+#       payload:
+#         type: "object"
+#       data:
+#         type: "object"
+#         properties: {}
+#     title: "InputParams"
+# paths:
+#   /createPlan:
+#     post:
+#       consumes:
+#       - "application/json"
+#       produces:
+#       - "application/json"
+#       parameters:
+#       - name: "Authorization"
+#         in: "header"
+#         required: true
+#         type: "string"
+#       - in: "body"
+#         name: "testModel"
+#         required: true
+#         schema:
+#           $ref: "#/definitions/testModel"
+#       responses: {
+#         "200": {
+#           "statusCode" : "200",
+#           "description": "200 response",
+#           "schema": {
+#             "$ref": "#/definitions/Empty"
+#           }
+#           # "responseTemplates" : { "application/json" : "#set ($root=$input.path('$')) { \"stage\": \"$root.name\", \"user-id\": \"$root.key\" }",
+#         }
+#       }    
+
+#       security:
+#       - BasicAuthorizer: []
+#       # x-amazon-apigateway-request-validator: "Validate body, query string parameters, and headers" # Not supported in SAM
+#       x-amazon-apigateway-integration:
+#         uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloWorldFunction.Arn}/invocations"
+#         responses:
+#           default:
+#             statusCode: "200"
+#         requestTemplates:
+#           application/json: "{\n  \"data\" : $input.json('$.data') ,\n  \"headers\"\
+#                       : {\n    #foreach($param in $input.params().header.keySet())\n    \"$param\"\
+#                       : \"$util.escapeJavaScript($input.params().header.get($param))\" #if($foreach.hasNext),#end\n\
+#                       \    \n    #end  \n  },\n  \"jwt_payload\": {\n   #foreach($param in $context.authorizer.keySet())\n\
+#                       \   \"$param\": \"$util.escapeJavaScript($context.authorizer.get($param))\"\
+#                       \ #if($foreach.hasNext),#end\n    \n    #end   \n  }\n \n}"
+#         passthroughBehavior: "when_no_templates"
+#         httpMethod: "POST"
+#         contentHandling: "CONVERT_TO_TEXT"
+#         type: "AWS"
